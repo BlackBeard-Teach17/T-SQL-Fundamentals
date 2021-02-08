@@ -29,6 +29,7 @@ VALUES	('Ghostbusters','8 June 1984',105,'','Comedy, Horror'),
 		('The Matrix','31 March 1999', 136,'', 'Science Fiction, Action')
 GO
 
+--Creating a virtualised structure for the movies table
 CREATE VIEW vMovies
 AS
 SELECT [MovieName],
@@ -94,12 +95,12 @@ GO
 
 --Add field to movies table to store poster
 ALTER TABLE [dbo].[Movies]
-	ADD [MoviePoster] [verbinary] (MAX);
+	ADD [MoviePoster] [varbinary] (MAX);
 GO
 
 --Add actor image in actors table
 ALTER TABLE [dbo].[Actors]
-	ADD [ActorPoster] [verbinary] (MAX);
+	ADD [ActorPoster] [varbinary] (MAX);
 GO
 
 --Add place of birth and country of birth
@@ -189,6 +190,16 @@ WHEN NOT MATCHED BY TARGET THEN
   VALUES (	ActorUpdates.[MovieID], ActorUpdates.[FirstName], ActorUpdates.[LastName], ActorUpdates.[DateOfBirth], ActorUpdates.[PlaceOfBirth], ActorUpdates.[CountryOfBirth]);
 GO
 
+--Creating views for the actors table
+CREATE VIEW vActors
+AS
+SELECT [FirstName],
+[DateOfBirth],
+[PlaceOfBirth],
+[CountryOfBirth]
+FROM [dbo].[Actors]
+GO
+
 --Directors table
 CREATE TABLE [dbo].[Directors](
 	[FirstName] [varchar](200) NOT NULL,
@@ -196,7 +207,7 @@ CREATE TABLE [dbo].[Directors](
 	[DateOfBirth] [date],
 	[PlaceOfBirth] [varchar](200) NULL,
 	[CountryOfBirth][varchar](200) NULL,
-	[Image] [binary],
+	[Image] [varbinary](MAX),
 	[DirectorID][int] IDENTITY(1,1) PRIMARY KEY NOT NULL,
 	[MovieID][int] FOREIGN KEY REFERENCES [Movies]([MovieID])
 );
@@ -206,17 +217,28 @@ ALTER TABLE [dbo].[Directors]
 	ADD CHECK (DateOfBirth < GETDATE());
 GO
 
+--CREATE VIEW FOR DIRECTORS TABLE
+CREATE VIEW vDirectors
+AS
+SELECT [FirstName],
+[LastName],
+[DateOfBirth],
+[PlaceOfBirth],
+[CountryOfBirth],
+[Image]
+FROM [dbo].[Directors]
+GO
 --ALTER TABLE [dbo].[Directors] WITH CHECK ADD CONSTRAINT [CK_DirectorBirthDate] CHECK  (([BirthDate]<getdate()))
 
 --Film Writers table
 CREATE TABLE [dbo].[Writers](
-	[FirstName][varchar](200) NULL,
+	[FirstName][varchar](200) NOT NULL,
 	[LastName][varchar](200) NULL,
 	[DateOfBirth][date],
 	[Age][int] NULL,
 	[PlaceOfBirth][varchar](300) NULL,
 	[CountryOfBirth][varchar](300) NULL,
-	[Image][binary],
+	[Image][varbinary](MAX),
 	[WriterID][int] IDENTITY(1,1) NOT NULL,
 	[MovieID][int] FOREIGN KEY REFERENCES [Movies]([MovieID])
 	CONSTRAINT [PK_Writers] PRIMARY KEY CLUSTERED 
@@ -224,6 +246,18 @@ CREATE TABLE [dbo].[Writers](
 		[WriterID] ASC
 	)
 );
+GO
+
+CREATE VIEW vWriters
+AS 
+SELECT [FirstName],
+[DateOfBirth],
+[Age],
+[PlaceOfBirth],
+[CountryOfBirth],
+[Image]
+FROM [dbo].[Writers]
+GO
 
 --Check directors DOB < todays date
 ALTER TABLE [dbo].[Writers]
@@ -231,16 +265,28 @@ ALTER TABLE [dbo].[Writers]
 GO
 
 CREATE TABLE [dbo].[Producers](
-	[FirstName][varchar](200) NULL,
+	[FirstName][varchar](200) NOT NULL,
 	[LastName][varchar](200) NULL,
 	[DateOfBirth][date],
 	[Age][int] NULL,
 	[PlaceOfBirth][varchar](300) NULL,
 	[CountryOfBirth][varchar](300) NULL,
-	[FilmImage][binary],
+	[FilmImage][varbinary](MAX),
 	[ProducerID][int] IDENTITY(1,1) PRIMARY KEY NOT NULL,
 	[MovieID][int] FOREIGN KEY REFERENCES [Movies]([MovieID])
 );
+GO
+--Create view for Producers
+CREATE VIEW vProducers
+AS 
+SELECT [FirstName],
+[DateOfBirth],
+[Age],
+[PlaceOfBirth],
+[CountryOfBirth],
+[FilmImage]
+FROM [dbo].[Producers]
+GO
 
 ALTER TABLE [dbo].[Producers]
 	ADD CHECK (DateOfBirth < GETDATE());
@@ -258,7 +304,7 @@ CREATE TABLE [dbo].[Producers](
 	[DateOfBirth][date],
 	[PlaceOfBirth][varchar](300) NULL,
 	[CountryOfBirth][varchar](300) NULL,
-	[FilmImage][binary],
+	[FilmImage][varbinary](MAX),
 	[ProducerID][int] IDENTITY(1,1) PRIMARY KEY NOT NULL,
 	[MovieID][int] FOREIGN KEY REFERENCES [Movies]([MovieID])
 );
