@@ -6,3 +6,5 @@ GO
 
 USE MovieDB;
 GO
+
+--DROP DATABASE MovieDB;
