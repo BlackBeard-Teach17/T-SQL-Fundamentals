@@ -33,10 +33,6 @@ CREATE TABLE Users
     UserID INT IDENTITY (1,1),
     FirstName VARCHAR(200) NOT NULL,
     LastName VARCHAR(200) NOT NULL,
-    AddressLine1 VARCHAR(200) NOT NULL,
-    AddressLine2 VARCHAR(200),
-    CITY VARCHAR(200) NOT NULL,
-    PostalCode VARCHAR(10) NOT NULL,
     Email VARCHAR(100) NOT NULL UNIQUE,
     PASSWORD VARCHAR(1000) NOT NULL,
     IdentityNo INT NOT NULL UNIQUE,
@@ -91,7 +87,6 @@ CREATE TABLE AuctionEvent
 (
     AuctionEventID INT IDENTITY (1,1),
     OfficiatorID INT FOREIGN KEY REFERENCES Officiators(OfficiatorID),
-    AuctionAddress VARCHAR(400) NOT NULL,
 	AuctionName VARCHAR(200) NOT NULL,
     AuctionDate DATE,
     NoOfSeats INT NOT NULL DEFAULT 50,
@@ -108,6 +103,7 @@ CREATE TABLE Bid
     CurrentBid INT NOT NULL DEFAULT 0,
     WinBid INT NOT NULL DEFAULT '0',
     BuyerID INT FOREIGN KEY REFERENCES Users(UserID),
+	TMStamp TIMESTAMP,
     CONSTRAINT PK_Bid PRIMARY KEY CLUSTERED (BidID)
 );
 
@@ -117,14 +113,17 @@ CREATE TABLE Product
     ProductID INT IDENTITY(1,1),
     CategoryID INT FOREIGN KEY REFERENCES Category(CategoryID),
     MarkID INT FOREIGN KEY REFERENCES LivestockMark(MarkID),
-    Weight INT DEFAULT 50,
+	AuctionID INT FOREIGN KEY REFERENCES AuctionEvent(AuctionEventID),
+	Breed VARCHAR(100),
+    ProductWeight INT DEFAULT 50,
     Gender VARCHAR(7) DEFAULT 'Unknown',
     Lot INT,
     StartingBid INT NOT NULL DEFAULT 1000,
 	ProductStatus VARCHAR(20) NOT NULL DEFAULT 'Available',
     BidID INT FOREIGN KEY REFERENCES Bid(BidID),
     SellerID INT FOREIGN KEY REFERENCES Users(UserID),
-    ProductImage VARBINARY(MAX)
+    ProductImage VARBINARY(MAX),
+	TMStamp TIMESTAMP
 );
 
 ALTER TABLE Product
@@ -143,17 +142,59 @@ CREATE TABLE Participant
     ParticipantID INT IDENTITY (1,1) UNIQUE,
     AuctionID INT FOREIGN KEY REFERENCES AuctionEvent(AuctionEventID),
     UserID INT FOREIGN KEY REFERENCES Users(UserID),
-    Method VARCHAR(100)
+    Method VARCHAR(100),
+	TMStamp TIMESTAMP
 );
 
 CREATE TABLE Trans
 (
     TransID INT IDENTITY (1,1),
-    BuyerID INT, --FOREIGN KEY REFERENCES Bid(BuyerID),Can't do this 
-    --SellerID INT FOREIGN KEY REFERENCES
-    ProductID INT, --FOREIGN KEY REFERENCES Bid(ProductID),
+    BuyerID INT,
+    ProductID INT,
+	Price INT NOT NULL,
     VAT INT,
+	TMStamp TIMESTAMP
+
+	CONSTRAINT PK_TransID PRIMARY KEY (TransID)
 );
+
+
+CREATE TABLE BankingDetails 
+(
+	BankingDetailsID INT IDENTITY(1,1),
+	UserID INT FOREIGN KEY REFERENCES Users(UserID),
+	AccountName VARCHAR(200),
+	BankName VARCHAR(200) NOT NULL,
+	AccountNo INT NOT NULL UNIQUE,
+	SwiftID VARCHAR(12),
+	AccountType VARCHAR(20) NOT NULL,
+	BranchCode INT NOT NULL,
+	Balance INT DEFAULT '0',
+	TMStamp TIMESTAMP
+
+	CONSTRAINT PK_BankingDetails PRIMARY KEY(BankingDetailsID)
+);
+
+CREATE TABLE ClientAddress
+(
+	AddressID INT IDENTITY(1,1),
+	UserID INT FOREIGN KEY REFERENCES Users(UserID),
+	AddressType VARCHAR(4),
+	Line1 VARCHAR(50) NOT NULL,
+	Line2 VARCHAR(50) NULL,
+	Line3 VARCHAR(50),
+	City VARCHAR(50) NOT NULL,
+	PostCode VARCHAR(10),
+	Province VARCHAR(50),
+	TMStamp DATETIME
+
+	CONSTRAINT PK_AddressID PRIMARY KEY(AddressID)
+);
+
+ALTER TABLE Users
+	ADD AddressID INT FOREIGN KEY REFERENCES ClientAddress(AddressID)
+ALTER TABLE Users
+	ADD BankingDetailsID INT FOREIGN KEY REFERENCES BankingDetails(BankingDetailsID)
 
 --INSERT STATEMENTS
 IF NOT EXISTS(SELECT StatusType FROM UserStatus WHERE StatusType = 'Unverified')
@@ -178,7 +219,36 @@ IF NOT EXISTS(SELECT CategoryName FROM Category WHERE CategoryName = 'Sheep')
 	INSERT INTO Category(CategoryName) VALUES('Sheep');
 IF NOT EXISTS(SELECT CategoryName FROM Category WHERE CategoryName = 'Donkey')
 	INSERT INTO Category(CategoryName) VALUES('Donkey');
+GO;
+--Select Statements
 
+--Views
+CREATE VIEW DetailsView AS
+SELECT p.Breed, p.AuctionID, p.ProductImage,p.productWeight, c.CategoryName, b.CurrentBid
+FROM Product p 
+INNER JOIN Category c ON p.CategoryID = c.CategoryID
+INNER JOIN Bid b ON p.BidID = b.BidID;
+GO;
+
+--View banking details
+CREATE VIEW BankingDetailsView AS 
+SELECT b.BankName, b.AccountName, b.AccountNo, b.Balance, u.LastName 
+FROM BankingDetails b
+LEFT JOIN Users u
+ON b.UserID = u.UserID;
+GO;
+--Insert into view to test
+
+CREATE VIEW AddressView AS
+SELECT a.Line1, a.Line2, a.Line3, a.City, a.PostCode, u.LastName
+FROM ClientAddress a
+INNER JOIN Users u
+ON a.AddressID = u.AddressID;
+GO;
+
+
+
+GO;
 --Stored Procedure
 USE Auction;
 GO
@@ -186,10 +256,6 @@ GO
 CREATE PROCEDURE uspInsertUserDetails
     @FirstName VARCHAR(200),
     @LastName VARCHAR(200),
-    @AddressLine1 VARCHAR(200),
-    @AddressLine2 VARCHAR(200),
-    @CITY VARCHAR(200),
-    @PostalCode VARCHAR(10),
     @Email VARCHAR(100),
     @Password VARCHAR(1000),
     @IdentityNo INT
@@ -199,9 +265,9 @@ SET NOCOUNT ON
         BEGIN TRY
             BEGIN TRANSACTION
                 INSERT INTO
-                    Users(FirstName,LastName,AddressLine1,AddressLine2,CITY,PostalCode,PASSWORD,Email,IdentityNo)
+                    Users(FirstName,LastName,PASSWORD,Email,IdentityNo)
                 VALUES
-                    (@FirstName, @LastName,@AddressLine1, @AddressLine2, @CITY,@PostalCode,@Password,@Email,@IdentityNo)
+                    (@FirstName, @LastName,@Password,@Email,@IdentityNo)
                 PRINT 'Insert complete...'
             COMMIT TRANSACTION;
         END TRY
@@ -214,7 +280,7 @@ SET NOCOUNT ON
     END
 GO;
 
-EXECUTE uspInsertUserDetails 'Zeke', 'Jaegar', '17 Beast Titan Street', 'Riberio', 'Marley', '20010', 'zeke@aot.com', '98a0276b3e0ea0ac9fffd81bd8fc602b', 0101015142084
+EXECUTE uspInsertUserDetails 'Zeke', 'Jaegar', '98a0276b3e0ea0ac9fffd81bd8fc602b', 'zeke@aot.com', 0101015142084
 GO;
 
 CREATE PROCEDURE uspUpdateUserAddressDetails 
@@ -222,17 +288,17 @@ CREATE PROCEDURE uspUpdateUserAddressDetails
 		@AddressLine1 AS VARCHAR(200),
 		@AddressLine2 AS VARCHAR(200),
 		@CITY AS VARCHAR(200),
-		@PostalCode AS VARCHAR(10)
+		@PostCode AS VARCHAR(10)
 AS
 SET NOCOUNT ON
     BEGIN
         BEGIN TRY
             BEGIN TRANSACTION
-                UPDATE Users
-                    SET AddressLine1 = @AddressLine1,
-                        AddressLine2 = @AddressLine2,
+                UPDATE ClientAddress
+                    SET Line1 = @AddressLine1,
+                        Line2 = @AddressLine2,
                         CITY = @CITY,
-                        PostalCode = @PostalCode
+                        PostCode = @PostCode
                 WHERE UserID = @UserID
             COMMIT TRANSACTION
         END TRY
@@ -291,15 +357,23 @@ BEGIN
 	RETURN @MaxBid;
 END
 GO;
---A trigger to update the Products table to set ProductStatus to sold after successful bidding
-CREATE TRIGGER registration_reminder
-ON Users
-AFTER INSERT
-AS
-EXEC msdb.dbo.sp_send_dbmail
-	@profile_name = 'Auction Admin',
-	@recipients = 
-	
-	DECLARE @LastName AS VARCHAR(200) = (SELECT LastName FROM Users WHERE UserID = MAX(UserID));
 
-	@profile_name = 
+
+--A trigger to update the Products table to set ProductStatus to sold after successful bidding
+CREATE TRIGGER update_product_status
+ON Bid
+FOR UPDATE 
+AS 
+DECLARE @ProductID INT,
+		@BidID INT,
+		@AuctionID INT
+
+IF UPDATE(WinBid)
+BEGIN 
+	UPDATE Product SET ProductStatus = 'Sold' where ProductID = @ProductID;
+END
+GO;
+
+
+
+ 
