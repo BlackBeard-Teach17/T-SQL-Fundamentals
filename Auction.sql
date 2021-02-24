@@ -89,6 +89,7 @@ CREATE TABLE AuctionEvent
     OfficiatorID INT FOREIGN KEY REFERENCES Officiators(OfficiatorID),
 	AuctionName VARCHAR(200) NOT NULL,
     AuctionDate DATE,
+    --AuctionAddressID INT FOREIGN KEY REFERENCES ClientAddress(AddressID),
     NoOfSeats INT NOT NULL DEFAULT 50,
     AuctionType VARCHAR(30) NOT NULL DEFAULT 'Hybrid',
     ClosingTime DATETIME,
@@ -144,6 +145,8 @@ CREATE TABLE Participant
     UserID INT FOREIGN KEY REFERENCES Users(UserID),
     Method VARCHAR(100),
 	TMStamp TIMESTAMP
+	    
+    CONSTRAINT PK_ParticipantID PRIMARY KEY (ParticipantID)
 );
 
 CREATE TABLE Trans
@@ -157,7 +160,13 @@ CREATE TABLE Trans
 
 	CONSTRAINT PK_TransID PRIMARY KEY (TransID)
 );
+ALTER TABLE Trans
+    ADD CONSTRAINT FK_BuyerID
+     FOREIGN KEY(BuyerID) REFERENCES Bid(BuyerID)
 
+ALTER TABLE Trans
+    ADD CONSTRAINT FK_ProductID
+        FOREIGN KEY(ProductID) REFERENCES Bid(ProductID)
 
 CREATE TABLE BankingDetails 
 (
@@ -196,6 +205,9 @@ ALTER TABLE Users
 ALTER TABLE Users
 	ADD BankingDetailsID INT FOREIGN KEY REFERENCES BankingDetails(BankingDetailsID)
 
+ALTER TABLE AuctionEvent
+    ADD AddressID INT FOREIGN KEY REFERENCES ClientAddress(AddressID)
+
 --INSERT STATEMENTS
 IF NOT EXISTS(SELECT StatusType FROM UserStatus WHERE StatusType = 'Unverified')
 	INSERT INTO UserStatus(StatusType) VALUES ('Unverified');
@@ -230,6 +242,43 @@ INNER JOIN Category c ON p.CategoryID = c.CategoryID
 INNER JOIN Bid b ON p.BidID = b.BidID;
 GO;
 
+--UDF's
+--UDF to get the current largest bid
+CREATE FUNCTION dbo.ufn_LargestBid(@AuctionID INT, @ProductID INT)
+RETURNS INT
+AS
+BEGIN
+	DECLARE @MaxBid INT;
+	SELECT @MaxBid = MAX(b.CurrentBid)
+	FROM Bid b
+	WHERE b.AuctionID = @AuctionID
+		AND b.ProductID = @ProductID;
+
+	IF(@MaxBid IS NULL)
+		SET @MaxBid = 0;
+	RETURN @MaxBid;
+END
+GO;
+
+CREATE FUNCTION ufn_IsParticipant(@UserID INT, @AuctionID INT)
+RETURNS VARCHAR
+AS
+    BEGIN
+        DECLARE @Registered VARCHAR;
+        DECLARE @Register_count INT;
+        SELECT @Register_count = COUNT(*)
+        FROM Participant
+        WHERE UserID = @UserID
+            AND AuctionID = @AuctionID;
+
+        IF (@Register_count > 0)
+            SET @Registered = 'Registered';
+        ELSE
+            SET @Registered = 'NotRegistered';
+        RETURN @Registered;
+    END
+GO;
+
 --View banking details
 CREATE VIEW BankingDetailsView AS 
 SELECT b.BankName, b.AccountName, b.AccountNo, b.Balance, u.LastName 
@@ -243,12 +292,10 @@ CREATE VIEW AddressView AS
 SELECT a.Line1, a.Line2, a.Line3, a.City, a.PostCode, u.LastName
 FROM ClientAddress a
 INNER JOIN Users u
-ON a.AddressID = u.AddressID;
+ON a.AddressID = u.AddressID
+AND a.UserID = u.UserID
 GO;
 
-
-
-GO;
 --Stored Procedure
 USE Auction;
 GO
@@ -311,6 +358,26 @@ SET NOCOUNT ON
     END
 
 GO;
+EXECUTE uspUpdateUserAddressDetails 4, '12 Shiganshina Avenue', 'Wall Maria', 'Paradis Island', '24569'
+GO;
+
+CREATE PROCEDURE uspRegisterForAuction
+    @UserID INT,
+    @AuctionID INT,
+    @Method INT
+AS
+    SET NOCOUNT ON;
+    BEGIN
+        BEGIN TRY
+            BEGIN TRANSACTION
+                IF NOT EXISTS(SELECT UserID FROM Participant WHERE UserID = @UserID)
+                    INSERT INTO Participant(AuctionID, UserID, Method) VALUES (@AuctionID, @UserID, @Method)
+            COMMIT TRANSACTION
+        END TRY
+        BEGIN CATCH
+        END CATCH
+    END
+GO;
 
 CREATE PROCEDURE uspUserBids
 	@AuctionID INT,
@@ -322,11 +389,14 @@ SET NOCOUNT ON;
     BEGIN
         BEGIN TRY
             BEGIN TRANSACTION
-				IF @CurrentBid > ufn_LargestBid(@AuctionID, @ProductID)
-					INSERT INTO Bid (AuctionID, CurrentBid, BuyerID, ProductID)
+                IF (ufn_IsParticipant(@BuyerID, @AuctionID) = 'Registered')
+				    IF @CurrentBid > ufn_LargestBid(@AuctionID, @ProductID)
+					    INSERT INTO Bid (AuctionID, CurrentBid, BuyerID, ProductID)
 						VALUES(@AuctionID, @CurrentBid, @BuyerID, @ProductID)
+				    ELSE
+                        PRINT 'Bid too low!'
 				ELSE
-					PRINT 'Place a higher bid'
+				    PRINT 'Not registered for this auction'
             COMMIT TRANSACTION
         END TRY
         BEGIN CATCH
@@ -340,25 +410,31 @@ GO;
 EXECUTE uspUserBids 1, 2000, 1, 2;
 GO
 
-
---UDF to get the current largest bid
-CREATE FUNCTION dbo.ufn_LargestBid(@AuctionID INT, @ProductID INT)
-RETURNS INT
+CREATE PROCEDURE uspUpdateBankingDetails
+    @UserID INT,
+    @AccountNO INT,
+    @BankName VARCHAR(100),
+    @AccountType VARCHAR(20),
+    @SwiftID VARCHAR(12)
 AS
-BEGIN
-	DECLARE @MaxBid INT;
-	SELECT @MaxBid = MAX(b.CurrentBid)
-	FROM Bid b
-	WHERE b.AuctionID = @AuctionID
-		AND b.ProductID = @ProductID;
-
-	IF(@MaxBid IS NULL)
-		SET @MaxBid = 0;
-	RETURN @MaxBid;
-END
+    SET NOCOUNT ON
+    BEGIN
+        BEGIN TRY
+            BEGIN TRANSACTION
+                UPDATE BankingDetails SET AccountNo = @AccountNO,
+                                          AccountType = @AccountType,
+                                          BankName = @BankName,
+                                          SwiftID = @SwiftID
+                WHERE UserID = @UserID
+            COMMIT TRANSACTION
+        END TRY
+        BEGIN CATCH
+            IF @@TRANCOUNT > 0
+                ROLLBACK TRANSACTION
+            PRINT ERROR_MESSAGE();
+        END CATCH
+    END
 GO;
-
-
 --A trigger to update the Products table to set ProductStatus to sold after successful bidding
 CREATE TRIGGER update_product_status
 ON Bid
@@ -374,6 +450,15 @@ BEGIN
 END
 GO;
 
-
-
- 
+CREATE TRIGGER insert_transaction
+ON Bid
+AFTER UPDATE
+AS
+    DECLARE @ProductID INT,
+            @BuyerID INT,
+            @Price INT,
+            @VAT INT
+    IF UPDATE(WinBid)
+BEGIN
+    INSERT INTO Trans(BuyerID, ProductID, Price, VAT) VALUES (@BuyerID, @ProductID, @Price, @VAT)
+END
